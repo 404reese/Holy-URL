@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use tracing::instrument;
 use url::Url;
 use uuid::Uuid;
 
 use crate::{
     errors::{AppError, AppResult},
-    models::{ShortUrlResponse, UrlEntry},
+    models::ShortUrlResponse,
     repositories::{CacheRepository, UrlRepository},
 };
 
 const BASE62_ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const MAX_ID_ATTEMPTS: usize = 5;
+const CACHE_TTL_SECONDS: usize = 60 * 60 * 24; // 24h
 
 #[async_trait]
 pub trait UrlService: Send + Sync {
@@ -54,17 +54,14 @@ where
         }
 
         let short_id = self.generate_unique_id().await?;
-        let created_at = Utc::now();
-        let entry = UrlEntry {
-            short_id: short_id.clone(),
-            long_url: parsed.to_string(),
-            created_at,
-        };
+        let normalized_url = parsed.to_string();
 
         // Persist first to maintain source of truth; caching is best-effort for read optimization.
-        self.store.save(entry).await?; // TODO: wire Cassandra storage implementation
+        self.store
+            .save(&short_id, &normalized_url)
+            .await?; // TODO: wire Cassandra storage implementation
         self.cache
-            .set(&short_id, &long_url)
+            .set(&short_id, &normalized_url, CACHE_TTL_SECONDS)
             .await?; // TODO: wire Redis caching implementation
 
         Ok(ShortUrlResponse {
@@ -76,8 +73,8 @@ where
     async fn generate_unique_id(&self) -> AppResult<String> {
         for _ in 0..MAX_ID_ATTEMPTS {
             let candidate = self.generate_id().await;
-            let exists = self.store.exists(&candidate).await?; // TODO: Cassandra existence check
-            if !exists {
+            let exists = self.store.find(&candidate).await?; // TODO: Cassandra existence check
+            if exists.is_none() {
                 return Ok(candidate);
             }
         }

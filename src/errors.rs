@@ -6,6 +6,8 @@ pub enum AppError {
     InvalidUrl(String),
     #[error("not found")]
     NotFound,
+    #[error("cache error: {0}")]
+    CacheError(String),
     #[error("cassandra error: {0}")]
     Cassandra(String),
     #[error("redis error: {0}")]

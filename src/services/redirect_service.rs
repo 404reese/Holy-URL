@@ -43,16 +43,16 @@ where
             return Ok(long_url);
         }
 
-        let entry = self.store.get(short_id).await?; // TODO: Cassandra read implementation
+        let entry = self.store.find(short_id).await?; // TODO: Cassandra read implementation
         if let Some(found) = entry {
             if let Err(err) = self
                 .cache
-                .set_with_ttl(short_id, &found.long_url, CACHE_TTL_SECONDS)
+                .set(short_id, &found, CACHE_TTL_SECONDS)
                 .await
             {
                 warn!(error = %err, "failed to populate redis cache"); // TODO: Redis cache implementation
             }
-            return Ok(found.long_url);
+            return Ok(found);
         }
 
         Err(AppError::NotFound)
